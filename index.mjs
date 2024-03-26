@@ -15,10 +15,18 @@ const maxFileSize = bytes(config.maxFileSize)
 
 let justSet = false
 
+let lastTempFileDir = null
+
 const initClient = (ws) => {
   const clipboardHandler = new ClipboardHandler()
 
   clipboardHandler.reader.on('data', (line) => {
+    // new clipboard enty, delete old temp file
+    if (lastTempFileDir) {
+      fs.rmdirSync(lastTempFileDir, { recursive: true })
+      lastTempFileDir = null
+    }
+
     if (!justSet) {
       const parsedLine = JSON.parse(line)
 
@@ -63,6 +71,12 @@ const initClient = (ws) => {
   ws.on('message', (encryptedData) => {
     const data = decrypt(encryptedData)
 
+    // new clipboard enty, delete old temp file
+    if (lastTempFileDir) {
+      fs.rmdirSync(lastTempFileDir, { recursive: true })
+      lastTempFileDir = null
+    }
+
     // make sure we don't send this data back
     justSet = true
     setTimeout(() => {
@@ -85,12 +99,12 @@ const initClient = (ws) => {
       const fileBuffer = Buffer.from(fileContentBase64, 'base64')
 
       // Generate a temporary file path
-      const tempFileDir = path.join(
+      lastTempFileDir = path.join(
         os.tmpdir(),
         `clipboard-tempfiles`,
         Date.now().toString(),
       )
-      fs.mkdirSync(tempFileDir, { recursive: true })
+      fs.mkdirSync(lastTempFileDir, { recursive: true })
       const originalFilename = path.basename(
         Buffer.from(
           parsedLine.find((l) => l[0] === 'text/plain')[1],
