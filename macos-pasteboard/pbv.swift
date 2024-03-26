@@ -4,12 +4,13 @@ import Foundation
 
 let newline = Data([0x0A] as [UInt8])
 
-let types: [NSPasteboard.PasteboardType] = [.png, .string]
+let types: [NSPasteboard.PasteboardType] = [.fileURL, .png, .string]
 
 let mimeTypeToPasteboardType: [String: NSPasteboard.PasteboardType] = [
     "text/plain": .string,
     "text/html": .html,
     "image/png": .png,
+    "text/uri-list": .fileURL,
 ]
 
 let pasteboardTypeToMimeType = Dictionary(uniqueKeysWithValues: mimeTypeToPasteboardType.map { ($1.rawValue, $0) })
@@ -99,11 +100,21 @@ func streamBestPasteboardData(_ pasteboard: NSPasteboard, timeInterval: TimeInte
         let changeCount = pasteboard.changeCount
         if changeCount != lastChangeCount {
             lastChangeCount = changeCount
-            do {
-                let (data, dataType) = try bestPasteboardData(pasteboard)
+            var allDataFormats = [[String]]()
+
+            guard let types = pasteboard.types else {
+                printErr("No pasteboard types available.")
+                return
+            }
+
+            for dataType in types {
+                guard let data = pasteboard.data(forType: dataType),
+                      let mimeType = mimeType(forPasteboardType: dataType) else { continue }
                 let dataString = data.base64EncodedString()
-                let mimeType = mimeType(forPasteboardType: dataType)
-                let jsonData = try JSONSerialization.data(withJSONObject: [mimeType, dataString])
+                allDataFormats.append([mimeType, dataString])
+            }
+            do {
+                let jsonData = try JSONSerialization.data(withJSONObject: allDataFormats)
                 if let jsonString = String(data: jsonData, encoding: .utf8) {
                     print(jsonString)
                     fflush(stdout) // flush output
@@ -116,39 +127,62 @@ func streamBestPasteboardData(_ pasteboard: NSPasteboard, timeInterval: TimeInte
 }
 
 func applyPasteboardData(_ pasteboard: NSPasteboard) {
-    while true {
-        // Read input from the user
-        guard let line = readLine(), !line.isEmpty else {
-            print("No input provided.")
-            exit(0)
+    guard let line = readLine(), !line.isEmpty else {
+        printErr("No input provided. Exiting.")
+        exit(0)
+    }
+
+    guard let inputData = line.data(using: .utf8),
+          let json = try? JSONSerialization.jsonObject(with: inputData) as? [[Any]]
+    else {
+        printErr("Failed to parse input. Ensure it's valid JSON with the correct structure.")
+        return
+    }
+
+    pasteboard.clearContents()
+    var items = [NSPasteboardItem]()
+
+    for jsonArray in json {
+        guard jsonArray.count == 2,
+              let dataTypeName = jsonArray[0] as? String,
+              let dataString = jsonArray[1] as? String,
+              let data = Data(base64Encoded: dataString),
+              let dataType = pasteboardType(forMIMEType: dataTypeName)
+        else {
+            printErr("Input parsing failed. Check that your JSON is correctly structured.")
+            return
         }
 
-        if let data = line.data(using: .utf8) {
-            do {
-                if let jsonArray = try JSONSerialization.jsonObject(with: data) as? [Any],
-                   jsonArray.count == 2,
-                   let dataTypeName = jsonArray[0] as? String,
-                   let dataString = jsonArray[1] as? String,
-                   let data = Data(base64Encoded: dataString)
-                {
-                    if let dataType = pasteboardType(forMIMEType: dataTypeName) {
-                        pasteboard.clearContents()
-                        let success = pasteboard.setData(data, forType: dataType)
-                        if success {
-                            print("Successfully set clipboard")
-                        } else {
-                            printErr("Failed to copy to clipboard.")
-                        }
-                    }
+        let pasteboardItem = NSPasteboardItem()
+
+        if dataType == NSPasteboard.PasteboardType.fileURL {
+            if let fileURLString = String(data: data, encoding: .utf8),
+               let fileURL = URL(string: fileURLString)
+            {
+                // Verify the file URL points to an existing file
+                var isDir: ObjCBool = false
+                if FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDir), !isDir.boolValue {
+                    print("File exists!")
+                    print(fileURL.absoluteString)
+                    pasteboardItem.setString(fileURL.absoluteString, forType: .fileURL)
+                    items.append(pasteboardItem)
                 } else {
-                    print("Invalid JSON format or missing data.")
+                    print(fileURL.path)
+                    printErr("The specified file does not exist at the provided URL.")
                 }
-            } catch {
-                print("Error parsing JSON: \(error)")
+            } else {
+                printErr("Failed to decode file URL from base64 string.")
             }
         } else {
-            print("Invalid input string.")
+            pasteboardItem.setData(data, forType: dataType)
+            items.append(pasteboardItem)
         }
+    }
+
+    if pasteboard.writeObjects(items) {
+        print("Clipboard successfully updated with multiple MIME types.")
+    } else {
+        printErr("Error: Clipboard update failed with multiple MIME types.")
     }
 }
 

@@ -1,4 +1,9 @@
 import fs from 'fs'
+import { fileURLToPath, pathToFileURL } from 'url'
+import os from 'os'
+import path from 'path'
+
+import bytes from 'bytes'
 import WebSocket from 'ws'
 import ClipboardHandler from './lib/clipboard/index.mjs'
 
@@ -6,6 +11,7 @@ import createCryptoLib from './lib/crypto.mjs'
 
 const config = JSON.parse(fs.readFileSync('./config.json').toString())
 const { encrypt, decrypt } = createCryptoLib(Buffer.from(config.key, 'base64'))
+const maxFileSize = bytes(config.maxFileSize)
 
 let justSet = false
 
@@ -14,8 +20,39 @@ const initClient = (ws) => {
 
   clipboardHandler.reader.on('data', (line) => {
     if (!justSet) {
-      console.log('Sending clipboard')
-      ws.send(encrypt(line), { binary: true })
+      const parsedLine = JSON.parse(line)
+
+      // special handler for files
+      const fileUriEntryIndex = parsedLine.findIndex(
+        (l) => l[0] === 'text/uri-list',
+      )
+      if (fileUriEntryIndex >= 0) {
+        const fileUriEntry = parsedLine[fileUriEntryIndex]
+        const filePath = fileURLToPath(
+          Buffer.from(fileUriEntry[1], 'base64').toString(),
+        )
+
+        const stat = fs.statSync(filePath)
+        if (!stat.isFile()) {
+          console.log('Only files are supported atm, removing file uri')
+          parsedLine.splice(fileUriEntryIndex, 1)
+        } else if (stat.size > maxFileSize) {
+          console.log('File too big, removing file uri')
+          parsedLine.splice(fileUriEntryIndex, 1)
+        } else {
+          const file = fs.readFileSync(filePath).toString('base64')
+          parsedLine[fileUriEntryIndex] = ['special-clipboard-share/file', file]
+
+          // only send filename, not cross-os compatible otherwise
+          parsedLine[parsedLine.findIndex((l) => l[0] === 'text/plain')] = [
+            'text/plain',
+            Buffer.from(path.basename(filePath)).toString('base64'),
+          ]
+        }
+      }
+
+      console.log('Sending clipboard', parsedLine.length)
+      ws.send(encrypt(JSON.stringify(parsedLine)), { binary: true })
     }
   })
 
@@ -32,8 +69,49 @@ const initClient = (ws) => {
       justSet = false
     }, 1000)
 
-    clipboardHandler.write(data)
-    console.log('Clipboard data received & set')
+    const parsedLine = JSON.parse(data)
+
+    // Find the index of the special clipboard share entry
+    const specialClipboardShareIndex = parsedLine.findIndex(
+      (entry) => entry[0] === 'special-clipboard-share/file',
+    )
+
+    // If a file entry exists, process it
+    if (specialClipboardShareIndex >= 0) {
+      const fileEntry = parsedLine[specialClipboardShareIndex]
+      const fileContentBase64 = fileEntry[1]
+
+      // Convert base64 to binary
+      const fileBuffer = Buffer.from(fileContentBase64, 'base64')
+
+      // Generate a temporary file path
+      const tempFileDir = path.join(
+        os.tmpdir(),
+        `clipboard-tempfiles`,
+        Date.now().toString(),
+      )
+      fs.mkdirSync(tempFileDir, { recursive: true })
+      const originalFilename = path.basename(
+        Buffer.from(
+          parsedLine.find((l) => l[0] === 'text/plain')[1],
+          'base64',
+        ).toString(),
+      )
+      const tempFilePath = path.join(tempFileDir, originalFilename)
+
+      // Write the file to the temporary location
+      fs.writeFileSync(tempFilePath, fileBuffer)
+
+      // Update the parsedLine to point to the new file location
+      const fileURL = pathToFileURL(tempFilePath).toString()
+      parsedLine[specialClipboardShareIndex] = [
+        'text/uri-list',
+        Buffer.from(fileURL + '\n').toString('base64'),
+      ]
+    }
+
+    clipboardHandler.write(JSON.stringify(parsedLine))
+    console.log('Clipboard data received & set', parsedLine.length)
   })
 
   ws.on('close', () => {

@@ -7,7 +7,7 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk
 
 
-formats = ["image/png", "text/plain", "UTF8_STRING"]
+formats = ["image/png", "text/uri-list", "text/plain", "UTF8_STRING"]
 
 def get_format(input_string):
     # Mapping of input formats to their desired output
@@ -25,17 +25,21 @@ def clipboard_changed(clipboard, event):
         print("No targets available.", file=sys.stderr)
     else:
         target_names = [target.name() for target in targets]  # Get the name of each Gdk.Atom
+
+        clipboard_list = []
         for preferred_format in formats:
             if preferred_format in target_names:
                 content = clipboard.wait_for_contents(Gdk.atom_intern(preferred_format, False))
                 if content:
                     data = content.get_data()
                     encoded_data = base64.b64encode(data).decode('utf-8')
-                    output = json.dumps([get_format(preferred_format), encoded_data])
-                    print(output)
-                    sys.stdout.flush()
-                return
-        print("Preferred formats not available.", target_names, file=sys.stderr)
+                    clipboard_list.append([get_format(preferred_format), encoded_data])
+        if len(clipboard_list) > 0:
+            output = json.dumps(clipboard_list)
+            print(output)
+            sys.stdout.flush()
+            return
+        print("No preferred format available.", target_names, file=sys.stderr)
 
 clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
 clipboard.connect("owner-change", clipboard_changed)
