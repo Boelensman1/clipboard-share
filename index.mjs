@@ -139,7 +139,7 @@ const initClient = (ws) => {
 }
 
 let retries = 0
-const maxRetries = 5
+const maxRetries = 10
 const start = () => {
   if (maxRetries !== -1 && retries >= maxRetries) {
     throw new Error('Could not connect')
@@ -151,7 +151,7 @@ const start = () => {
   ws.on('error', (err) => {
     console.error(err)
     console.log(`Retrying (${retries}/${maxRetries})`)
-    setTimeout(start, 1000)
+    setTimeout(start, retries * 1000)
   })
 
   ws.on('open', () => {
