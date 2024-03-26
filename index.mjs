@@ -10,8 +10,12 @@ import ClipboardHandler from './lib/clipboard/index.mjs'
 import createCryptoLib from './lib/crypto.mjs'
 
 const config = JSON.parse(fs.readFileSync('./config.json').toString())
-const { encrypt, decrypt } = createCryptoLib(Buffer.from(config.key, 'base64'))
+const { encrypt, decrypt, getKeyHash } = createCryptoLib(
+  Buffer.from(config.key, 'base64'),
+  Buffer.from(config.salt, 'base64'),
+)
 const maxFileSize = bytes(config.maxFileSize)
+const keyHash = getKeyHash()
 
 let justSet = false
 
@@ -151,8 +155,11 @@ const start = () => {
   })
 
   ws.on('open', () => {
-    console.log('Connected to the server.')
+    console.log(`Connected to the server as ${keyHash}.`)
     retries = 0
+
+    ws.send(`CON_HASH:${keyHash}`)
+
     initClient(ws)
   })
 }
