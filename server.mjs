@@ -2,7 +2,10 @@ import WebSocket, { WebSocketServer } from 'ws'
 
 const port = 8080
 
-const wss = new WebSocketServer({ port })
+const wss = new WebSocketServer({
+  port,
+  maxPayload: 50 * 1024 * 1024, // 50mb, max filesize is 32mb, but there is some overhead from base64 encoding
+})
 
 const clientHashes = new Map()
 

@@ -63,8 +63,18 @@ const initClient = (ws) => {
         }
       }
 
-      console.log('Sending clipboard', parsedLine.length)
-      ws.send(encrypt(JSON.stringify(parsedLine)), { binary: true })
+      if (parsedLine.length === 0) {
+        return
+      }
+
+      console.log('Sending clipboard')
+      const encryptedData = encrypt(JSON.stringify(parsedLine))
+      if (encryptedData.byteLength > 50 * 1024 * 1024) {
+        // 50mb is the max size for the server
+        console.error('Data too big, not sending.')
+        return
+      }
+      ws.send(encryptedData, { binary: true })
     }
   })
 
