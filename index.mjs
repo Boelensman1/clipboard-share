@@ -25,14 +25,14 @@ const initClient = (ws) => {
   const clipboardHandler = new ClipboardHandler()
 
   clipboardHandler.reader.on('data', (line) => {
-    // new clipboard enty, delete old temp file
-    if (lastTempFileDir) {
-      fs.rmdirSync(lastTempFileDir, { recursive: true })
-      lastTempFileDir = null
-    }
-
     if (!justSet) {
       const parsedLine = JSON.parse(line)
+
+      // new clipboard enty, delete old temp file
+      if (lastTempFileDir) {
+        fs.rmSync(lastTempFileDir, { recursive: true })
+        lastTempFileDir = null
+      }
 
       // special handler for files
       const fileUriEntryIndex = parsedLine.findIndex(
@@ -125,7 +125,7 @@ const initClient = (ws) => {
           'base64',
         ).toString(),
       )
-      const tempFilePath = path.join(tempFileDir, originalFilename)
+      const tempFilePath = path.join(lastTempFileDir, originalFilename)
 
       // Write the file to the temporary location
       fs.writeFileSync(tempFilePath, fileBuffer)
@@ -134,7 +134,7 @@ const initClient = (ws) => {
       const fileURL = pathToFileURL(tempFilePath).toString()
       parsedLine[specialClipboardShareIndex] = [
         'text/uri-list',
-        Buffer.from(fileURL + '\n').toString('base64'),
+        Buffer.from(fileURL).toString('base64'),
       ]
     }
 
