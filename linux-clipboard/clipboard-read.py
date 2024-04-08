@@ -26,14 +26,17 @@ def clipboard_changed(clipboard, event):
     else:
         target_names = [target.name() for target in targets]  # Get the name of each Gdk.Atom
 
-        clipboard_list = []
+        # Use a dictionary to avoid duplicate formats
+        clipboard_dict = {}
         for preferred_format in formats:
             if preferred_format in target_names:
                 content = clipboard.wait_for_contents(Gdk.atom_intern(preferred_format, False))
                 if content:
                     data = content.get_data()
                     encoded_data = base64.b64encode(data).decode('utf-8')
-                    clipboard_list.append([get_format(preferred_format), encoded_data])
+                    clipboard_dict[get_format(preferred_format)] = encoded_data
+
+        clipboard_list = [[format, data] for format, data in clipboard_dict.items()]
         if len(clipboard_list) > 0:
             output = json.dumps(clipboard_list)
             print(output)
