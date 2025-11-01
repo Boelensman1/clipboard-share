@@ -44,7 +44,16 @@ const initClient = (ws) => {
           Buffer.from(fileUriEntry[1], 'base64').toString(),
         )
 
-        const stat = fs.statSync(filePath)
+        let stat
+        try {
+          stat = fs.statSync(filePath)
+        } catch (err) {
+          console.error(err)
+        }
+        if (!stat) {
+          console.log('Could not stat copied file')
+          return
+        }
         if (!stat.isFile()) {
           console.log('Only files are supported atm, removing file uri')
           parsedLine.splice(fileUriEntryIndex, 1)

@@ -110,7 +110,18 @@ func streamBestPasteboardData(_ pasteboard: NSPasteboard, timeInterval: TimeInte
             for dataType in types {
                 guard let data = pasteboard.data(forType: dataType),
                       let mimeType = mimeType(forPasteboardType: dataType) else { continue }
-                let dataString = data.base64EncodedString()
+
+                var dataToEncode = data
+
+                // Resolve file reference URLs to actual filesystem paths
+                if dataType == .fileURL,
+                   let urlString = String(data: data, encoding: .utf8),
+                   let fileURL = URL(string: urlString) {
+                    let standardizedURL = fileURL.standardized
+                    dataToEncode = standardizedURL.absoluteString.data(using: .utf8) ?? data
+                }
+
+                let dataString = dataToEncode.base64EncodedString()
                 allDataFormats.append([mimeType, dataString])
             }
             do {
