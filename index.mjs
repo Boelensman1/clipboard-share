@@ -2,6 +2,7 @@ import fs from 'fs'
 import { fileURLToPath, pathToFileURL } from 'url'
 import os from 'os'
 import path from 'path'
+import { parseArgs } from 'util'
 
 import bytes from 'bytes'
 import WebSocket from 'ws'
@@ -9,7 +10,12 @@ import ClipboardHandler from './lib/clipboard/index.mjs'
 
 import createCryptoLib from './lib/crypto.mjs'
 
-const config = JSON.parse(fs.readFileSync('./config.json').toString())
+const { values: args } = parseArgs({
+  options: { config: { type: 'string', short: 'c' } },
+  strict: true,
+})
+const configPath = args.config ?? './config.json'
+const config = JSON.parse(fs.readFileSync(configPath).toString())
 const { encrypt, decrypt, getKeyHash } = createCryptoLib(
   Buffer.from(config.key, 'base64'),
   Buffer.from(config.salt, 'base64'),
