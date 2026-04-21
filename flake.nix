@@ -17,8 +17,12 @@
           pkgs.gobject-introspection
           pkgs.gtk3
           pkgs.gtk4
-          pkgs.glib
-          pkgs.gdk-pixbuf
+          pkgs.glib.out
+          pkgs.gdk-pixbuf.out
+          pkgs.pango.out
+          pkgs.graphene
+          pkgs.harfbuzz.out
+          pkgs.atk
         ];
 
         clipboard-share = pkgs.buildNpmPackage (finalAttrs: {
