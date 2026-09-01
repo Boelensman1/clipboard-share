@@ -1,12 +1,14 @@
 {
   "name": "clipboard-share",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "",
   "main": "index.mjs",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "gen-cert": "node gen-cert.mjs",
+    "server": "node server.mjs"
   },
   "author": "",
   "license": "ISC",

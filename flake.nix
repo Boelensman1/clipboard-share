@@ -93,7 +93,7 @@
             root="$out/libexec/clipboard-share"
             mkdir -p "$root" "$out/bin"
 
-            cp index.mjs server.mjs package.json "$root/"
+            cp index.mjs server.mjs gen-cert.mjs package.json "$root/"
             cp -r lib "$root/lib"
             cp -rL node_modules "$root/node_modules"
             cp -r linux-clipboard "$root/linux-clipboard"
@@ -101,6 +101,13 @@
 
             makeWrapper ${pkgs.nodejs_24}/bin/node "$out/bin/clipboard-share" \
               --add-flags "$root/index.mjs"
+
+            makeWrapper ${pkgs.nodejs_24}/bin/node "$out/bin/clipboard-share-server" \
+              --add-flags "$root/server.mjs"
+
+            makeWrapper ${pkgs.nodejs_24}/bin/node "$out/bin/clipboard-share-gen-cert" \
+              --add-flags "$root/gen-cert.mjs" \
+              --prefix PATH : ${pkgs.openssl}/bin
 
             runHook postInstall
           '';

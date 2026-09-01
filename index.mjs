@@ -1,4 +1,5 @@
 import fs from 'fs'
+import crypto from 'node:crypto'
 import { fileURLToPath, pathToFileURL } from 'url'
 import os from 'os'
 import path from 'path'
@@ -32,6 +33,43 @@ const { encrypt, decrypt, getKeyHash } = createCryptoLib(
 )
 const maxFileSize = bytes(config.maxFileSize)
 const keyHash = getKeyHash()
+
+// TLS is mandatory: the connection must be wss:// and the server's self-signed
+// certificate must be pinned via config.serverCert. Refuse to run otherwise so
+// clipboard traffic is never sent over an unauthenticated/plaintext channel.
+if (!/^wss:\/\//i.test(config.server ?? '')) {
+  console.error(
+    `config.server must be a wss:// URL (got: ${config.server}). Plaintext ws:// is not allowed.`,
+  )
+  process.exit(1)
+}
+if (!config.serverCert) {
+  console.error(
+    'config.serverCert is required: path to the pinned server certificate (cert.pem).',
+  )
+  process.exit(1)
+}
+let serverCert
+try {
+  serverCert = fs.readFileSync(config.serverCert)
+} catch (err) {
+  console.error(
+    `Could not read serverCert at ${config.serverCert}:`,
+    err.message,
+  )
+  process.exit(1)
+}
+
+// Replay protection: reject messages whose timestamp is outside this window, or
+// whose nonce we've already seen. Assumes machine clocks are within ~60s (NTP).
+const REPLAY_WINDOW_MS = 60_000
+const seenNonces = new Map() // nonce -> expiry timestamp (ms)
+
+const pruneNonces = (now) => {
+  for (const [nonce, expiry] of seenNonces) {
+    if (expiry <= now) seenNonces.delete(nonce)
+  }
+}
 
 let justSet = false
 
@@ -105,7 +143,15 @@ const initClient = (ws) => {
       }
 
       console.log('Sending clipboard')
-      const encryptedData = encrypt(JSON.stringify(parsedLine))
+      // Wrap in an authenticated envelope (timestamp + nonce) for replay
+      // protection; GCM authenticates these fields along with the payload.
+      const encryptedData = encrypt(
+        JSON.stringify({
+          t: Date.now(),
+          n: crypto.randomUUID(),
+          d: parsedLine,
+        }),
+      )
       if (encryptedData.byteLength > 50 * 1024 * 1024) {
         // 50mb is the max size for the server
         console.error('Data too big, not sending.')
@@ -128,6 +174,25 @@ const initClient = (ws) => {
   ws.on('message', (encryptedData) => {
     try {
       const data = decrypt(encryptedData)
+      const envelope = JSON.parse(data)
+
+      // Replay protection: drop stale or already-seen messages.
+      const now = Date.now()
+      pruneNonces(now)
+      if (
+        typeof envelope.t !== 'number' ||
+        Math.abs(now - envelope.t) > REPLAY_WINDOW_MS
+      ) {
+        console.error('Dropping message: timestamp outside allowed window')
+        return
+      }
+      if (typeof envelope.n !== 'string' || seenNonces.has(envelope.n)) {
+        console.error('Dropping message: replayed or missing nonce')
+        return
+      }
+      seenNonces.set(envelope.n, envelope.t + REPLAY_WINDOW_MS)
+
+      const parsedLine = envelope.d
 
       // new clipboard enty, delete old temp file
       if (lastTempFileDir) {
@@ -140,8 +205,6 @@ const initClient = (ws) => {
       setTimeout(() => {
         justSet = false
       }, 1000)
-
-      const parsedLine = JSON.parse(data)
 
       // Find the index of the special clipboard share entry
       const specialClipboardShareIndex = parsedLine.findIndex(
@@ -206,7 +269,9 @@ const scheduleReconnect = () => {
 
 function start() {
   reconnecting = false
-  const ws = new WebSocket(config.server)
+  // Pin the server's self-signed certificate: the client trusts only this cert
+  // (encryption + server authentication, no public CA).
+  const ws = new WebSocket(config.server, { ca: [serverCert] })
 
   ws.on('error', (err) => {
     console.error('Connection error:', err.message)

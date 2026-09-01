@@ -1,9 +1,43 @@
+import fs from 'fs'
+import https from 'https'
+import { parseArgs } from 'util'
+
 import WebSocket, { WebSocketServer } from 'ws'
 
 const port = 8080
 
+// TLS is mandatory: the server only speaks wss://. Both --cert and --key are
+// required so clipboard traffic is never relayed over a plaintext channel.
+const { values: args } = parseArgs({
+  options: {
+    cert: { type: 'string' },
+    key: { type: 'string' },
+  },
+  strict: true,
+})
+
+if (!args.cert || !args.key) {
+  console.error(
+    'Both --cert <path> and --key <path> are required (TLS is mandatory). ' +
+      'Generate a self-signed pair with: node gen-cert.mjs <host-or-ip>',
+  )
+  process.exit(1)
+}
+
+let cert
+let key
+try {
+  cert = fs.readFileSync(args.cert)
+  key = fs.readFileSync(args.key)
+} catch (err) {
+  console.error('Could not read cert/key:', err.message)
+  process.exit(1)
+}
+
+const httpsServer = https.createServer({ cert, key })
+
 const wss = new WebSocketServer({
-  port,
+  server: httpsServer,
   maxPayload: 50 * 1024 * 1024, // 50mb, max filesize is 32mb, but there is some overhead from base64 encoding
 })
 
@@ -54,4 +88,6 @@ wss.on('connection', (ws) => {
   })
 })
 
-console.log(`WebSocket server is running on ws://localhost:${port}`)
+httpsServer.listen(port, () => {
+  console.log(`WebSocket server is running on wss://localhost:${port}`)
+})
