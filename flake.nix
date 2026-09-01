@@ -25,22 +25,22 @@
           pkgs.atk
         ];
 
-        clipboard-share = pkgs.buildNpmPackage (finalAttrs: {
+        clipboard-share = pkgs.stdenv.mkDerivation (finalAttrs: {
           pname = "clipboard-share";
           version = "1.0.0";
 
           src = ./.;
 
-          npmDeps = pkgs.importNpmLock { npmRoot = ./.; };
-          npmConfigHook = pkgs.importNpmLock.npmConfigHook;
-
-          dontNpmBuild = true;
-          dontNpmInstall = true;
-
-          npmFlags = [ "--ignore-scripts" ];
+          pnpmDeps = pkgs.fetchPnpmDeps {
+            inherit (finalAttrs) pname version src;
+            fetcherVersion = 1;
+            hash = "sha256-da3lxfUDMnZSNMpZN4ICO4QFjWoljUOLx5o4ZNPL9d8=";
+          };
 
           nativeBuildInputs = [
             pkgs.nodejs_24
+            pkgs.pnpm
+            pkgs.pnpmConfigHook
             pkgs.makeWrapper
           ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
             pythonEnv
@@ -123,7 +123,7 @@
         packages.clipboard-share = clipboard-share;
 
         devShells.default = pkgs.mkShell {
-          packages = [ pkgs.nodejs_24 ]
+          packages = [ pkgs.nodejs_24 pkgs.pnpm ]
             ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
               pythonEnv
               pkgs.gobject-introspection
