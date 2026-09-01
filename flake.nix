@@ -56,25 +56,11 @@
             pkgs.glib
           ];
 
-          # Rewrite the four spawn sites to absolute store paths. The user will
-          # `cd` into a directory containing config.json before running, so cwd
-          # is not the install tree and the original `./linux-clipboard/...`
-          # and `./macos-pasteboard/...` paths would not resolve.
+          # The four spawn sites resolve themselves from import.meta.url, so no
+          # rewriting is needed: ../../../ out of lib/clipboard/<platform>/ lands
+          # on $out/libexec/clipboard-share, which is where installPhase puts
+          # macos-pasteboard and linux-clipboard. Only the shebangs need fixing.
           postPatch = ''
-            libexec="${placeholder "out"}/libexec/clipboard-share"
-
-            substituteInPlace lib/clipboard/linux/clipboardReader.mjs \
-              --replace-fail "./linux-clipboard/clipboard-read.py" "$libexec/linux-clipboard/clipboard-read.py"
-
-            substituteInPlace lib/clipboard/linux/clipboardWriter.mjs \
-              --replace-fail "./linux-clipboard/clipboard-write.py" "$libexec/linux-clipboard/clipboard-write.py"
-
-            substituteInPlace lib/clipboard/macos/clipboardReader.mjs \
-              --replace-fail "./macos-pasteboard/bin/pbv" "$libexec/macos-pasteboard/bin/pbv"
-
-            substituteInPlace lib/clipboard/macos/clipboardWriter.mjs \
-              --replace-fail "./macos-pasteboard/bin/pbv" "$libexec/macos-pasteboard/bin/pbv"
-
             patchShebangs linux-clipboard/clipboard-read.py linux-clipboard/clipboard-write.py
           '';
 
