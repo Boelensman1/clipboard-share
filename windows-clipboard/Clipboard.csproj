@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Console subsystem so stdin/stdout piping (and manual terminal runs)
+         work reliably. The Node wrappers spawn with windowsHide so no console
+         window flashes. -->
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>clipboard</AssemblyName>
+    <RootNamespace>ClipboardShare</RootNamespace>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- Allows building this Windows-targeted project from Linux/macOS
+         (cross-compile). No effect when building on Windows. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+</Project>

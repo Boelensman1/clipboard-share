@@ -8,7 +8,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "gen-cert": "node gen-cert.mjs",
-    "server": "node server.mjs"
+    "server": "node server.mjs",
+    "build:windows": "dotnet publish windows-clipboard/Clipboard.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o windows-clipboard/bin"
   },
   "author": "",
   "license": "ISC",
