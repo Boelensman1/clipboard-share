@@ -2,3 +2,4 @@ node_modules
 /macos-pasteboard/swiftformat
 /config.json
 /result
+pnpm-lock.yaml
