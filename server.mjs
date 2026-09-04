@@ -63,11 +63,28 @@ const isHashMessage = (message) =>
   message.length >= hashPrefix.length &&
   message.slice(0, hashPrefix.length).equals(hashPrefix)
 
+// How often we ping clients to find the ones that went away without closing.
+const heartbeatIntervalMs = 30000
+
 wss.on('connection', (ws) => {
   console.log('A new client connected.')
 
+  ws.isAlive = true
+  ws.on('pong', () => {
+    ws.isAlive = true
+  })
+
+  // Without a listener an 'error' is an unhandled EventEmitter error, which
+  // takes the whole server down. A client whose network disappears is exactly
+  // what produces the ECONNRESET here.
+  ws.on('error', (err) => {
+    console.error('Client connection error:', err.message)
+  })
+
   // Receiving message from client
   ws.on('message', (message) => {
+    ws.isAlive = true
+
     // Check if the message is a hash connection message
     if (isHashMessage(message)) {
       console.log('Received a hash')
@@ -86,6 +103,30 @@ wss.on('connection', (ws) => {
     // Remove client from clientHashes map on disconnect
     clientHashes.delete(ws)
   })
+})
+
+// Reap half-open clients. A client that vanished without a FIN keeps a socket
+// in readyState OPEN forever, so broadcasts would buffer into a dead socket and
+// its clientHashes entry would never be cleaned up. terminate() fires 'close',
+// which does that cleanup.
+const heartbeat = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      console.log('A client stopped responding to pings, terminating.')
+      ws.terminate()
+      return
+    }
+    ws.isAlive = false
+    ws.ping()
+  })
+}, heartbeatIntervalMs)
+
+wss.on('close', () => {
+  clearInterval(heartbeat)
+})
+
+wss.on('error', (err) => {
+  console.error('WebSocket server error:', err.message)
 })
 
 httpsServer.listen(port, () => {

@@ -10,6 +10,7 @@ import WebSocket from 'ws'
 import ClipboardHandler from './lib/clipboard/index.mjs'
 
 import createCryptoLib from './lib/crypto.mjs'
+import watchNetwork from './lib/networkWatcher.mjs'
 
 // Last-resort safety net: never let a stray throw in a callback take the
 // whole daemon down. The handlers below (per-handler try/catch, subprocess
@@ -33,6 +34,15 @@ const { encrypt, decrypt, getKeyHash } = createCryptoLib(
 )
 const maxFileSize = bytes(config.maxFileSize)
 const keyHash = getKeyHash()
+
+// Connection liveness. A network switch or a suspend leaves a half-open TCP
+// connection: no FIN/RST ever arrives, so 'close' never fires and the client
+// would sit there "connected" but silent until the OS keepalive gives up
+// (~2 hours). The heartbeat below is what actually notices.
+const connectionConfig = config.connection ?? {}
+const pingIntervalMs = connectionConfig.pingIntervalMs ?? 5000
+const pongTimeoutMs = connectionConfig.pongTimeoutMs ?? 5000
+const connectTimeoutMs = connectionConfig.connectTimeoutMs ?? 10000
 
 // TLS is mandatory: the connection must be wss:// and the server's self-signed
 // certificate must be pinned via config.serverCert. Refuse to run otherwise so
@@ -251,27 +261,57 @@ const initClient = (ws) => {
   })
 }
 
-// Reconnect forever with exponential backoff capped at 30s. A single failure
-// can fire both 'error' and 'close'; the `reconnecting` guard makes sure that
-// only schedules one reconnect (no reconnect storm / duplicate connections).
+// Reconnect forever with exponential backoff. A single failure can fire both
+// 'error' and 'close'; the `reconnecting` guard makes sure that only schedules
+// one reconnect (no reconnect storm / duplicate connections).
 const baseBackoff = 1000
-const maxBackoff = 30000
+const maxBackoff = connectionConfig.maxBackoffMs ?? 10000
 let backoff = baseBackoff
 let reconnecting = false
+let reconnectTimer = null
+let currentWs = null
 
 const scheduleReconnect = () => {
   if (reconnecting) return
   reconnecting = true
-  console.log(`Reconnecting in ${Math.round(backoff / 1000)}s...`)
-  setTimeout(start, backoff)
+  // Jitter (50-100% of the backoff) so clients that all lost the same network
+  // don't come back in lockstep.
+  const delay = Math.round(backoff * (0.5 + Math.random() * 0.5))
+  console.log(`Reconnecting in ${(delay / 1000).toFixed(1)}s...`)
+  reconnectTimer = setTimeout(start, delay)
   backoff = Math.min(maxBackoff, backoff * 2)
 }
 
 function start() {
   reconnecting = false
+  reconnectTimer = null
   // Pin the server's self-signed certificate: the client trusts only this cert
-  // (encryption + server authentication, no public CA).
-  const ws = new WebSocket(config.server, { ca: [serverCert] })
+  // (encryption + server authentication, no public CA). handshakeTimeout keeps
+  // a connect attempt on a black-holed network from hanging on OS-level SYN
+  // retries (~75s) before it gives up.
+  const ws = new WebSocket(config.server, {
+    ca: [serverCert],
+    handshakeTimeout: connectTimeoutMs,
+  })
+  currentWs = ws
+
+  let pingTimer = null
+  let pongTimer = null
+
+  const stopHeartbeat = () => {
+    clearInterval(pingTimer)
+    clearTimeout(pongTimer)
+    pingTimer = null
+    pongTimer = null
+  }
+
+  // Any inbound traffic proves the link is still there, not just pongs.
+  const markAlive = () => {
+    clearTimeout(pongTimer)
+    pongTimer = null
+  }
+  ws.on('pong', markAlive)
+  ws.on('message', markAlive)
 
   ws.on('error', (err) => {
     console.error('Connection error:', err.message)
@@ -279,6 +319,8 @@ function start() {
 
   ws.on('close', () => {
     console.log('Connection closed.')
+    stopHeartbeat()
+    if (currentWs === ws) currentWs = null
     scheduleReconnect()
   })
 
@@ -286,10 +328,42 @@ function start() {
     console.log(`Connected to the server as ${keyHash}.`)
     backoff = baseBackoff
 
+    // Heartbeat: ping regularly and tear the socket down if the pong doesn't
+    // come back. terminate() rather than close(), because close() waits for a
+    // close frame that a dead link is never going to deliver.
+    pingTimer = setInterval(() => {
+      if (ws.readyState !== WebSocket.OPEN) return
+      if (pongTimer) return // still waiting on the previous ping
+      ws.ping()
+      pongTimer = setTimeout(() => {
+        console.error(
+          `No pong within ${pongTimeoutMs}ms, connection is dead. Terminating.`,
+        )
+        ws.terminate()
+      }, pongTimeoutMs)
+    }, pingIntervalMs)
+
     ws.send(`CON_HASH:${keyHash}`)
 
     initClient(ws)
   })
 }
+
+// A new IP or a resume from suspend almost always means the current socket is
+// already dead. Don't wait for the ping to time out: drop it and reconnect at
+// the base backoff, which also gives a freshly-up interface a moment to settle.
+watchNetwork((reason) => {
+  console.log(`Detected ${reason}, forcing reconnect.`)
+  backoff = baseBackoff
+  if (currentWs) {
+    // 'close' fires immediately and schedules the reconnect.
+    currentWs.terminate()
+  } else if (reconnecting) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+    reconnecting = false
+    start()
+  }
+})
 
 start()

@@ -14,6 +14,26 @@ Salt can be generated using `openssl rand -base64 18` (can be longer)
 
 The client reads `./config.json` by default. Pass `--config <path>` (or `-c`) to point it at a file elsewhere.
 
+### Connection tuning (optional)
+
+The client pings the server and drops the socket if the pong doesn't come back,
+so a dead link (network switch, VPN drop, suspend) is noticed in ~10s instead of
+waiting for the OS TCP keepalive. It also reconnects immediately when the local
+IP addresses change or the machine wakes from sleep. Defaults are usually fine;
+override them with a `connection` block:
+
+```{
+"connection": {
+  "pingIntervalMs": 5000,     # how often to ping while connected
+  "pongTimeoutMs": 5000,      # no pong within this -> connection is dead
+  "connectTimeoutMs": 10000,  # give up on a connect attempt that stalls
+  "maxBackoffMs": 10000       # cap on the reconnect backoff
+}
+}
+```
+
+The reconnect triggers are covered by `pnpm test` (`node --test`).
+
 ## Clients
 
 The client is the same `node index.mjs` on every OS; only the native clipboard
